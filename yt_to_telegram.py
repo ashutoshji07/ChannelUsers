@@ -17,6 +17,7 @@ import asyncpg
 import json
 import asyncio
 from aiohttp import ClientSession
+import telegram
 
 # Get configuration from environment variables
 RENDER_SERVICE_URL = os.getenv('RENDER_SERVICE_URL')  # Your Render service URL
@@ -114,9 +115,12 @@ async def main():
                 if not await is_user_exists(pool, channel_id):
                     # Save user to database
                     await save_user(pool, channel_id, channel_name, channel_url, author)
+                    
+                    # Get current time
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                # Format with bold for name and channel, and include date/time
-                # Format channel as clickable link if available
+                    
+                    # Format with bold for name and channel, and include date/time
+                    # Format channel as clickable link if available
                 # Fallback: construct channel URL from channel_id if missing
                 if not channel_url and channel_id:
                     channel_url = f'https://www.youtube.com/channel/{channel_id}'
@@ -148,25 +152,43 @@ async def main():
                     f"⏰ *Date&Time:* {safe_now}\n"
                     f"🤖 *Agent:* {safe_agent} ✅"
                 )
-                if profile_pic_url:
+                async def send_with_retry(attempt=1, max_attempts=3):
                     try:
-                        async with session.get(profile_pic_url) as resp:
-                            if resp.status == 200:
-                                img_bytes = await resp.read()
-                                from io import BytesIO
-                                img_file = BytesIO(img_bytes)
-                                img_file.name = 'profile.jpg'
-                                await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=img_file, caption=caption, parse_mode='MarkdownV2')
-                                print(f"Sent photo for {channel_name}")
-                            else:
-                                await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
-                                print(f"Sent info for {channel_name} (no image, HTTP {resp.status})")
+                        if profile_pic_url:
+                            async with session.get(profile_pic_url) as resp:
+                                if resp.status == 200:
+                                    img_bytes = await resp.read()
+                                    from io import BytesIO
+                                    img_file = BytesIO(img_bytes)
+                                    img_file.name = 'profile.jpg'
+                                    await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=img_file, caption=caption, parse_mode='MarkdownV2')
+                                    print(f"Sent photo for {channel_name}")
+                                    # Add delay after successful send
+                                    await asyncio.sleep(3)
+                                else:
+                                    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
+                                    print(f"Sent info for {channel_name} (no image, HTTP {resp.status})")
+                                    await asyncio.sleep(3)
+                        else:
+                            await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
+                            print(f"Sent info for {channel_name} (no image)")
+                            await asyncio.sleep(3)
+                    except telegram.error.RetryAfter as e:
+                        if attempt < max_attempts:
+                            retry_after = int(str(e).split()[-2])  # Extract seconds from error message
+                            print(f"Rate limit hit, waiting {retry_after} seconds before retry {attempt}/{max_attempts}")
+                            await asyncio.sleep(retry_after)
+                            await send_with_retry(attempt + 1, max_attempts)
+                        else:
+                            print(f"Failed to send after {max_attempts} attempts: Rate limit")
                     except Exception as e:
-                        await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
-                        print(f"Sent info for {channel_name} (image error: {e})")
-                else:
-                    await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
-                    print(f"Sent info for {channel_name} (no image)")
+                        print(f"Error sending message: {e}")
+                        if attempt < max_attempts:
+                            await asyncio.sleep(5)  # Wait 5 seconds before retry
+                            await send_with_retry(attempt + 1, max_attempts)
+                
+                # Try to send the message with retries
+                await send_with_retry()
 
 # Keep alive ping task
 async def keep_alive():
