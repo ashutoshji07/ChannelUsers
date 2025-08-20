@@ -1,23 +1,14 @@
 # YouTube Live Chat to Telegram Bot
 # This script will monitor a YouTube livestream chat and send new users' channel info to a Telegram channel.
 
-
-
 import os
-import asyncio
-import aiohttp
-from datetime import datetime
-from chat_downloader import ChatDownloader
-from telegram import Bot
-
-
-# --- CONFIGURATION ---
-import os
-import asyncpg
 import json
 import asyncio
-from aiohttp import ClientSession
-import telegram
+from datetime import datetime
+from aiohttp import ClientSession, web
+from chat_downloader import ChatDownloader
+from telegram import Bot
+import asyncpg
 
 # Get configuration from environment variables
 RENDER_SERVICE_URL = os.getenv('RENDER_SERVICE_URL')  # Your Render service URL
@@ -114,16 +105,15 @@ async def main():
             images = author.get('images', [])
             profile_pic_url = images[0]['url'] if images else None
             if channel_id:
-                # Check if user already exists in database
-                if not await is_user_exists(pool, channel_id):
-                    # Save user to database
-                    await save_user(pool, channel_id, channel_name, channel_url, author)
+                # Skip if user already exists in database
+                if await is_user_exists(pool, channel_id):
+                    continue
                     
-                    # Get current time
-                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    # Format with bold for name and channel, and include date/time
-                    # Format channel as clickable link if available
+                # Save new user to database and process message
+                await save_user(pool, channel_id, channel_name, channel_url, author)
+                
+                # Format with bold for name and channel, and include date/time
+                # Format channel as clickable link if available
                 # Fallback: construct channel URL from channel_id if missing
                 if not channel_url and channel_id:
                     channel_url = f'https://www.youtube.com/channel/{channel_id}'
@@ -193,11 +183,26 @@ async def main():
                 # Try to send the message with retries
                 await send_with_retry()
 
-# Keep alive ping task
+# Simple HTTP server for health checks
+async def handle_health_check(request):
+    return web.Response(text="OK")
+
+# Keep alive server and self-ping task
 async def keep_alive():
     if not RENDER_SERVICE_URL:
         return  # Skip if no service URL is provided
-        
+    
+    # Set up the HTTP server
+    app = web.Application()
+    app.router.add_get('/', handle_health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get('PORT', 10000))  # Render will provide PORT env variable
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Health check server running on port {port}")
+    
+    # Self-ping task
     async with ClientSession() as session:
         while True:
             try:

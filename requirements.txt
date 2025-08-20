@@ -1,5 +1,5 @@
-chat-downloader
-python-telegram-bot
-aiohttp
-psycopg2-binary
-asyncpg
+chat-downloader>=0.2.8
+python-telegram-bot>=22.3
+aiohttp>=3.12.0
+psycopg2-binary>=2.9.10
+asyncpg>=0.30.0
