@@ -187,11 +187,7 @@ async def main():
 async def handle_health_check(request):
     return web.Response(text="OK")
 
-# Keep alive server and self-ping task
-async def keep_alive():
-    if not RENDER_SERVICE_URL:
-        return  # Skip if no service URL is provided
-    
+async def start_server():
     # Set up the HTTP server
     app = web.Application()
     app.router.add_get('/', handle_health_check)
@@ -201,17 +197,30 @@ async def keep_alive():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"Health check server running on port {port}")
+    return runner
+
+# Keep alive server and self-ping task
+async def keep_alive():
+    if not RENDER_SERVICE_URL:
+        return  # Skip if no service URL is provided
     
-    # Self-ping task
-    async with ClientSession() as session:
-        while True:
-            try:
-                # Ping the service every 14 minutes
-                await asyncio.sleep(14 * 60)  # 14 minutes in seconds
-                async with session.get(RENDER_SERVICE_URL) as response:
-                    print(f"Keep-alive ping status: {response.status}")
-            except Exception as e:
-                print(f"Keep-alive ping failed: {e}")
+    # Start HTTP server
+    runner = await start_server()
+    
+    try:
+        # Self-ping task
+        async with ClientSession() as session:
+            while True:
+                try:
+                    # Ping the service every 14 minutes
+                    await asyncio.sleep(14 * 60)  # 14 minutes in seconds
+                    async with session.get(RENDER_SERVICE_URL) as response:
+                        print(f"Keep-alive ping status: {response.status}")
+                except Exception as e:
+                    print(f"Keep-alive ping failed: {e}")
+    finally:
+        # Ensure server is cleaned up
+        await runner.cleanup()
 
 # Helper to convert sync iterator to async iterator
 import threading
@@ -233,11 +242,16 @@ def _to_async_iter(sync_iter):
     return gen()
 
 async def start_services():
-    # Run both the main bot and keep-alive ping concurrently
-    await asyncio.gather(
-        main(),
-        keep_alive()
-    )
+    try:
+        # Run both the main bot and keep-alive ping concurrently
+        # Keep alive must start first to ensure the web server is running
+        await asyncio.gather(
+            keep_alive(),
+            main()
+        )
+    except Exception as e:
+        print(f"Service error: {e}")
+        raise
 
 if __name__ == '__main__':
     asyncio.run(start_services())

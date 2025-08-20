@@ -16,5 +16,8 @@ COPY cookies.txt .
 # Copy the rest of the application
 COPY . .
 
+# Expose the port that the application will run on
+EXPOSE 10000
+
 # Run the bot
 CMD ["python", "yt_to_telegram.py"]
