@@ -4,8 +4,10 @@
 import os
 import json
 import asyncio
+import re
 from datetime import datetime
-from aiohttp import ClientSession, web
+import aiohttp
+from aiohttp import web
 from chat_downloader import ChatDownloader
 from telegram import Bot
 import asyncpg
@@ -209,7 +211,7 @@ async def keep_alive():
     
     try:
         # Self-ping task
-        async with ClientSession() as session:
+        async with aiohttp.ClientSession() as session:
             while True:
                 try:
                     # Ping the service every 14 minutes
