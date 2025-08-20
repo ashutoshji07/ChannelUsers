@@ -104,6 +104,9 @@ async def main():
     chat = chat_downloader.get_chat(livestream_url)
     async with aiohttp.ClientSession() as session:
         async for message in _to_async_iter(chat):
+            # Get current time for each message
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
             author = message.get('author', {})
             channel_id = author.get('id')
             channel_name = author.get('name')
@@ -173,14 +176,14 @@ async def main():
                             await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=caption, parse_mode='MarkdownV2')
                             print(f"Sent info for {channel_name} (no image)")
                             await asyncio.sleep(3)
-                    except telegram.error.RetryAfter as e:
-                        if attempt < max_attempts:
+                    except Exception as e:
+                        if 'RetryAfter' in str(type(e)) and attempt < max_attempts:
                             retry_after = int(str(e).split()[-2])  # Extract seconds from error message
                             print(f"Rate limit hit, waiting {retry_after} seconds before retry {attempt}/{max_attempts}")
                             await asyncio.sleep(retry_after)
                             await send_with_retry(attempt + 1, max_attempts)
                         else:
-                            print(f"Failed to send after {max_attempts} attempts: Rate limit")
+                            print(f"Failed to send after {max_attempts} attempts: {str(e)}")
                     except Exception as e:
                         print(f"Error sending message: {e}")
                         if attempt < max_attempts:
