@@ -1,0 +1,5 @@
+chat-downloader
+python-telegram-bot
+aiohttp
+psycopg2-binary
+asyncpg

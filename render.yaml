@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: youtube-chat-monitor
+    env: docker
+    plan: free
+    buildCommand: docker build -t youtube-chat-monitor .
+    startCommand: docker run youtube-chat-monitor
+    envVars:
+      # Required variables that must be set in Render dashboard
+      - key: YOUTUBE_VIDEO_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHANNEL_ID
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: youtube-chat-db
+          property: connectionString
+      - key: RENDER_SERVICE_URL
+        sync: false  # Set this to your service URL after deployment
+      - key: COOKIES_FILE
+        value: cookies.txt  # Default value, can be changed in dashboard
+
+databases:
+  - name: youtube-chat-db
+    plan: free
+    ipAllowList: []
