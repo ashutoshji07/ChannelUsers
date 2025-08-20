@@ -93,15 +93,14 @@ async def main():
     livestream_url = f'https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}'
     
     # Set up ChatDownloader with cookies
-    chat_downloader = ChatDownloader()
-    
-    # Use the existing cookies file
     if os.path.exists(COOKIES_FILE):
         print(f"Using cookies file: {COOKIES_FILE}")
-        chat = chat_downloader.get_chat(livestream_url, cookies=COOKIES_FILE)
+        chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
     else:
         print("Warning: Cookies file not found, trying without authentication")
-        chat = chat_downloader.get_chat(livestream_url)
+        chat_downloader = ChatDownloader()
+    
+    chat = chat_downloader.get_chat(livestream_url)
     async with aiohttp.ClientSession() as session:
         async for message in _to_async_iter(chat):
             author = message.get('author', {})
