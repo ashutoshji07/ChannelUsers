@@ -5,6 +5,8 @@ import aiohttp
 import asyncpg
 import threading
 import queue
+import socket
+import time
 from datetime import datetime
 from aiohttp import web
 from chat_downloader import ChatDownloader
@@ -13,6 +15,7 @@ from telegram_handler import TelegramHandler
 # Create web app for health checks
 app = web.Application()
 _web_server_started = False
+_web_runner = None
 
 async def health_check(request):
     return web.Response(text="Service is running")
@@ -44,27 +47,56 @@ async def self_ping():
                 print(f"Self-ping error: {str(e)}")
             await asyncio.sleep(60 * 14)  # Ping every 14 minutes
 
+def is_port_in_use(port):
+    """Check if a port is already in use"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
+
+async def find_available_port(start_port=10000, max_attempts=10):
+    """Find an available port starting from start_port"""
+    for offset in range(max_attempts):
+        port = start_port + offset
+        if not is_port_in_use(port):
+            return port
+    raise RuntimeError(f"No available ports found after {max_attempts} attempts")
+
 async def start_web_server():
-    global _web_server_started
+    global _web_server_started, _web_runner
     
     if _web_server_started:
-        return
-        
+        return _web_runner
+    
+    # Get port from environment or find an available one
     try:
-        port = int(os.environ.get("PORT", "10000"))
+        env_port = os.environ.get("PORT")
+        if env_port:
+            port = int(env_port)
+            print(f"Using PORT from environment: {port}")
+        else:
+            port = await find_available_port()
+            print(f"Found available port: {port}")
+            
+        # Create and start the server
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', port)
         await site.start()
+        
+        # Mark as started and store runner for cleanup
         _web_server_started = True
+        _web_runner = runner
         print(f"Web server successfully started on port {port}")
         
         # Start the self-ping task after server is confirmed running
         if RENDER_SERVICE_URL:
             asyncio.create_task(self_ping())
+            
+        return runner
     except OSError as e:
         print(f"Failed to start web server: {str(e)}")
-        raise
+        # Wait a bit before returning to allow other startup processes
+        await asyncio.sleep(2)
+        return None
     asyncio.create_task(self_ping())
 
 # --- CONFIGURATION ---
@@ -312,14 +344,30 @@ async def keep_alive():
         await runner.cleanup()
 
 async def start_services():
+    # Try to start web server first with retries
+    for attempt in range(3):
+        try:
+            runner = await start_web_server()
+            if runner:
+                break
+            print(f"Web server start attempt {attempt+1} failed, retrying...")
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"Error starting web server (attempt {attempt+1}): {str(e)}")
+            if attempt == 2:  # Last attempt
+                print("Failed to start web server after multiple attempts")
+                # Continue anyway, as we'll still try to run the main function
+    
+    # Run main function regardless of web server status
     try:
-        await asyncio.gather(
-            keep_alive(),
-            main()
-        )
+        await main()
     except Exception as e:
-        print(f"Service error: {e}")
+        print(f"Main service error: {str(e)}")
         raise
+    finally:
+        # Cleanup web server if it was started
+        if _web_runner:
+            await _web_runner.cleanup()
 
 if __name__ == '__main__':
     asyncio.run(start_services())

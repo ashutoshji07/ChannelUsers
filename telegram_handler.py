@@ -31,7 +31,7 @@ class TelegramHandler:
             f"✨ *Name:* {safe_channel_name}\n"
             f"📺 *Channel:* {channel_link} 🔗\n"
             f"⏰ *Date&Time:* {safe_timestamp}\n"
-            f"🤖 *Agent:* {safe_agent} ✅"
+            f"🤖 *Dev:* {safe_agent} ✅"
         )
 
     async def send_message_with_retry(self, channel_name, channel_url, timestamp, profile_pic_url, session, max_attempts=3):
