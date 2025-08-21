@@ -14,5 +14,8 @@ COPY cookies.txt .
 # Expose the port that the application will run on
 EXPOSE $PORT
 
+# Set environment variable for Python to run in unbuffered mode
+ENV PYTHONUNBUFFERED=1
+
 # Run the application
-CMD ["python", "main.py"]
+CMD ["python", "-u", "main.py"]
