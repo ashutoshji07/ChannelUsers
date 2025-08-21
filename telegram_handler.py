@@ -10,13 +10,31 @@ class TelegramHandler:
 
     @staticmethod
     def escape_md(text):
-        """Escape markdown characters in text"""
-        chars = r'_\[\]\(\)~`>#+\-=|{}.!'
-        return re.sub(rf'([{chars}])', r'\\\1', str(text))
+        """Escape markdown characters in text for MarkdownV2 format"""
+        # Full list of characters that need escaping in MarkdownV2
+        chars = r'_*\[\]()~`>#+-=|{}.!'
+        escaped = re.sub(rf'([{re.escape(chars)}])', r'\\\1', str(text))
+        return escaped
 
+    def sanitize_username(self, username):
+        """Sanitize username to prevent formatting issues"""
+        # Replace with a simple escaped version to avoid formatting conflicts
+        try:
+            # First try the standard escaping
+            escaped = self.escape_md(username)
+            # If username has complex formatting, simplify it further
+            if len(username) > 30 or username.count('*') > 2 or username.count('_') > 2:
+                # Simplified version with clear indication it's been modified
+                return f"{escaped} (sanitized)"
+            return escaped
+        except Exception:
+            # Fallback for any username that causes issues
+            return "User (name contains special characters)"
+            
     def format_message(self, channel_name, channel_url, timestamp):
         """Format message for Telegram with proper escaping"""
-        safe_channel_name = self.escape_md(channel_name)
+        # For usernames, apply special handling
+        safe_channel_name = self.sanitize_username(channel_name)
         safe_timestamp = self.escape_md(timestamp)
         safe_agent = self.escape_md('@CyberWo9f')
         
@@ -36,7 +54,16 @@ class TelegramHandler:
 
     async def send_message_with_retry(self, channel_name, channel_url, timestamp, profile_pic_url, session, max_attempts=3):
         """Send message to Telegram with retry logic"""
-        caption = self.format_message(channel_name, channel_url, timestamp)
+        # Try to format with markdown first
+        try:
+            caption = self.format_message(channel_name, channel_url, timestamp)
+        except Exception as format_error:
+            # If formatting fails, use a simplified format with minimal formatting
+            print(f"⚠️ Formatting failed for {channel_name}: {str(format_error)}")
+            safe_name = "User (name contains special characters)"
+            safe_link = "[Channel Link]" if channel_url else "None"
+            caption = f"✨ Name: {safe_name}\n📺 Channel: {safe_link}\n⏰ Time: {timestamp}"
+        
         base_delay = 3  # Base delay between messages
         
         for attempt in range(1, max_attempts + 1):
@@ -48,24 +75,53 @@ class TelegramHandler:
                             img_bytes = await resp.read()
                             img_file = BytesIO(img_bytes)
                             img_file.name = 'profile.jpg'
-                            await self.bot.send_photo(
-                                chat_id=self.channel_id,
-                                photo=img_file,
-                                caption=caption,
-                                parse_mode='MarkdownV2'
-                            )
-                            print(f"✅ Sent with photo: {channel_name}")
+                            try:
+                                await self.bot.send_photo(
+                                    chat_id=self.channel_id,
+                                    photo=img_file,
+                                    caption=caption,
+                                    parse_mode='MarkdownV2'
+                                )
+                                print(f"✅ Sent with photo: {channel_name}")
+                            except Exception as markdown_error:
+                                if "entities" in str(markdown_error) or "parse" in str(markdown_error).lower():
+                                    # If MarkdownV2 parsing fails, try without formatting
+                                    print(f"⚠️ Markdown parsing failed, sending without formatting: {str(markdown_error)}")
+                                    simple_caption = f"User: {channel_name}\nChannel: {channel_url}\nTime: {timestamp}"
+                                    await self.bot.send_photo(
+                                        chat_id=self.channel_id,
+                                        photo=img_file,
+                                        caption=simple_caption,
+                                        parse_mode=None  # No parsing
+                                    )
+                                    print(f"✅ Sent with photo (no formatting): {channel_name}")
+                                else:
+                                    raise markdown_error
                         else:
                             raise Exception(f"Failed to fetch profile picture: HTTP {resp.status}")
                 except Exception as img_error:
                     print(f"⚠️ Image fetch failed for {channel_name}: {str(img_error)}")
                     # Fall back to text-only message if image fetch fails
-                    await self.bot.send_message(
-                        chat_id=self.channel_id,
-                        text=caption,
-                        parse_mode='MarkdownV2'
-                    )
-                    print(f"✅ Sent text-only (image failed): {channel_name}")
+                    try:
+                        await self.bot.send_message(
+                            chat_id=self.channel_id,
+                            text=caption,
+                            parse_mode='MarkdownV2'
+                        )
+                        print(f"✅ Sent text-only (image failed): {channel_name}")
+                    except Exception as text_error:
+                        if "entities" in str(text_error) or "parse" in str(text_error).lower():
+                            # If MarkdownV2 parsing fails, try without formatting
+                            print(f"⚠️ Text formatting failed, sending plain text: {str(text_error)}")
+                            simple_text = f"User: {channel_name}\nChannel: {channel_url}\nTime: {timestamp}"
+                            await self.bot.send_message(
+                                chat_id=self.channel_id,
+                                text=simple_text,
+                                parse_mode=None  # No parsing
+                            )
+                            print(f"✅ Sent text-only (no formatting): {channel_name}")
+                        else:
+                            raise text_error
                 
                 # Dynamic delay after successful send based on attempt number
                 delay = base_delay * attempt
