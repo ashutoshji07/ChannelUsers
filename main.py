@@ -12,6 +12,7 @@ from telegram_handler import TelegramHandler
 
 # Create web app for health checks
 app = web.Application()
+_web_server_started = False
 
 async def health_check(request):
     return web.Response(text="Service is running")
@@ -24,9 +25,13 @@ async def self_ping():
     if not RENDER_SERVICE_URL:
         print("RENDER_SERVICE_URL not set, skipping self-ping")
         return
-        
+
     service_url = f"{RENDER_SERVICE_URL.rstrip('/')}/health"
     print(f"Starting self-ping to {service_url}")
+    
+    # Wait a bit before starting pings to ensure server is up
+    await asyncio.sleep(30)
+    
     async with aiohttp.ClientSession() as session:
         while True:
             try:
@@ -37,17 +42,29 @@ async def self_ping():
                         print(f"Self-ping failed with status {response.status}")
             except Exception as e:
                 print(f"Self-ping error: {str(e)}")
-            await asyncio.sleep(60 * 14)  # Ping every 14 minutes (Render free tier sleeps after 15 minutes)
+            await asyncio.sleep(60 * 14)  # Ping every 14 minutes
 
 async def start_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"Web server started on port {port}")
+    global _web_server_started
     
-    # Start the self-ping task
+    if _web_server_started:
+        return
+        
+    try:
+        port = int(os.environ.get("PORT", "10000"))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        _web_server_started = True
+        print(f"Web server successfully started on port {port}")
+        
+        # Start the self-ping task after server is confirmed running
+        if RENDER_SERVICE_URL:
+            asyncio.create_task(self_ping())
+    except OSError as e:
+        print(f"Failed to start web server: {str(e)}")
+        raise
     asyncio.create_task(self_ping())
 
 # --- CONFIGURATION ---

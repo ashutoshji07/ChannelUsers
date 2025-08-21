@@ -17,7 +17,7 @@ services:
           name: youtube-chat-db
           property: connectionString
       - key: RENDER_SERVICE_URL
-        sync: false  # Set this to your service URL after deployment
+        value: https://youtube-chat-monitor.onrender.com  # Service URL for self-ping
       - key: COOKIES_FILE
         value: cookies.txt  # Default value, can be changed in dashboard
 
