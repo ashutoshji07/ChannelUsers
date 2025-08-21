@@ -39,26 +39,36 @@ async def init_db():
             channel_name TEXT,
             channel_url TEXT,
             first_seen TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            sent_to_telegram BOOLEAN DEFAULT FALSE,
+            telegram_sent_at TIMESTAMP WITH TIME ZONE,
             data JSONB
         )
     ''')
     await conn.close()
 
 # Database operations
-async def is_user_exists(pool, channel_id):
+async def is_user_sent_to_telegram(pool, channel_id):
     async with pool.acquire() as conn:
         return await conn.fetchval(
-            'SELECT EXISTS(SELECT 1 FROM youtube_users WHERE channel_id = $1)',
+            'SELECT sent_to_telegram FROM youtube_users WHERE channel_id = $1',
             channel_id
-        )
+        ) or False
 
 async def save_user(pool, channel_id, channel_name, channel_url, data):
     async with pool.acquire() as conn:
         await conn.execute('''
-            INSERT INTO youtube_users (channel_id, channel_name, channel_url, data)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO youtube_users (channel_id, channel_name, channel_url, data, sent_to_telegram)
+            VALUES ($1, $2, $3, $4, FALSE)
             ON CONFLICT (channel_id) DO NOTHING
         ''', channel_id, channel_name, channel_url, json.dumps(data))
+
+async def mark_user_sent_to_telegram(pool, channel_id):
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            UPDATE youtube_users 
+            SET sent_to_telegram = TRUE, telegram_sent_at = CURRENT_TIMESTAMP 
+            WHERE channel_id = $1
+        ''', channel_id)
 
 # Health check server
 async def handle_health_check(request):
@@ -69,10 +79,16 @@ async def start_server():
     app.router.add_get('/', handle_health_check)
     runner = aiohttp.web.AppRunner(app)
     await runner.setup()
+    
+    # Render assigns a port via the PORT environment variable
     port = int(os.environ.get('PORT', 10000))
     site = aiohttp.web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"Health check server running on port {port}")
+    
+    # Important: We need to keep this information
+    print(f"Server started on port {port}")
+    print(f"Listening on http://0.0.0.0:{port}")
     return runner
 
 # Helper to convert sync iterator to async iterator
@@ -142,21 +158,32 @@ async def main():
                         profile_pic_url = images[0]['url'] if images else None
                         
                         if channel_id:
-                            if await is_user_exists(pool, channel_id):
-                                continue
-                            
+                            # Save the user first (won't duplicate due to ON CONFLICT DO NOTHING)
                             await save_user(pool, channel_id, channel_name, channel_url, author)
                             
+                            # Check if we've already sent this user to Telegram
+                            if await is_user_sent_to_telegram(pool, channel_id):
+                                continue
+                            
+                            # Prepare channel URL if not provided
                             if not channel_url and channel_id:
                                 channel_url = f'https://www.youtube.com/channel/{channel_id}'
                             
-                            await telegram_handler.send_message_with_retry(
-                                channel_name=channel_name,
-                                channel_url=channel_url,
-                                timestamp=now,
-                                profile_pic_url=profile_pic_url,
-                                session=session
-                            )
+                            # Send to Telegram
+                            try:
+                                await telegram_handler.send_message_with_retry(
+                                    channel_name=channel_name,
+                                    channel_url=channel_url,
+                                    timestamp=now,
+                                    profile_pic_url=profile_pic_url,
+                                    session=session
+                                )
+                                # Mark as sent only after successful Telegram send
+                                await mark_user_sent_to_telegram(pool, channel_id)
+                                print(f"Successfully sent and marked user {channel_name} ({channel_id})")
+                            except Exception as send_error:
+                                print(f"Failed to send user to Telegram: {channel_name} ({channel_id}): {send_error}")
+                                # Don't mark as sent if there was an error
                     except Exception as msg_error:
                         print(f"Error processing message: {msg_error}")
                         continue
