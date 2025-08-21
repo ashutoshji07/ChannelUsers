@@ -2,22 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy just the cookies file first
+# Copy application files
+COPY main.py .
+COPY telegram_handler.py .
 COPY cookies.txt .
 
-# Copy the rest of the application
-COPY . .
-
 # Expose the port that the application will run on
-EXPOSE 10000
+EXPOSE $PORT
 
-# Run the bot
-CMD ["python", "yt_to_telegram.py"]
+# Run the application
+CMD ["python", "main.py"]

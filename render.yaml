@@ -3,6 +3,8 @@ services:
     name: youtube-chat-monitor
     env: docker
     plan: free
+    buildCommand: docker build -t youtube-chat-monitor .
+    startCommand: python main.py
     envVars:
       # Required variables that must be set in Render dashboard
       - key: YOUTUBE_VIDEO_ID
