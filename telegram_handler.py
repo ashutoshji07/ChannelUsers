@@ -34,13 +34,15 @@ class TelegramHandler:
             f"🤖 *Agent:* {safe_agent} ✅"
         )
 
-    async def send_message_with_retry(self, channel_name, channel_url, timestamp, profile_pic_url=None, session=None, max_attempts=3):
+    async def send_message_with_retry(self, channel_name, channel_url, timestamp, profile_pic_url, session, max_attempts=3):
         """Send message to Telegram with retry logic"""
         caption = self.format_message(channel_name, channel_url, timestamp)
-
+        base_delay = 3  # Base delay between messages
+        
         for attempt in range(1, max_attempts + 1):
             try:
-                if profile_pic_url and session:
+                # Always try to send with profile picture since it's always available
+                try:
                     async with session.get(profile_pic_url) as resp:
                         if resp.status == 200:
                             img_bytes = await resp.read()
@@ -52,37 +54,41 @@ class TelegramHandler:
                                 caption=caption,
                                 parse_mode='MarkdownV2'
                             )
-                            print(f"Sent photo for {channel_name}")
+                            print(f"✅ Sent with photo: {channel_name}")
                         else:
-                            await self.bot.send_message(
-                                chat_id=self.channel_id,
-                                text=caption,
-                                parse_mode='MarkdownV2'
-                            )
-                            print(f"Sent info for {channel_name} (no image, HTTP {resp.status})")
-                else:
+                            raise Exception(f"Failed to fetch profile picture: HTTP {resp.status}")
+                except Exception as img_error:
+                    print(f"⚠️ Image fetch failed for {channel_name}: {str(img_error)}")
+                    # Fall back to text-only message if image fetch fails
                     await self.bot.send_message(
                         chat_id=self.channel_id,
                         text=caption,
                         parse_mode='MarkdownV2'
                     )
-                    print(f"Sent info for {channel_name} (no image)")
+                    print(f"✅ Sent text-only (image failed): {channel_name}")
                 
-                # Add delay after successful send to avoid rate limits
-                await asyncio.sleep(3)
+                # Dynamic delay after successful send based on attempt number
+                delay = base_delay * attempt
+                await asyncio.sleep(delay)
                 return True
 
             except Exception as e:
-                if 'RetryAfter' in str(type(e)) and attempt < max_attempts:
+                error_type = str(type(e).__name__)
+                if 'RetryAfter' in error_type:
+                    # Handle Telegram rate limit
                     retry_after = int(str(e).split()[-2])
-                    print(f"Rate limit hit, waiting {retry_after} seconds before retry {attempt}/{max_attempts}")
-                    await asyncio.sleep(retry_after)
+                    print(f"⏳ Rate limit hit for {channel_name}, waiting {retry_after}s (attempt {attempt}/{max_attempts})")
+                    await asyncio.sleep(retry_after + 1)  # Add 1 second buffer
+                elif attempt < max_attempts:
+                    # Other errors, use exponential backoff
+                    wait_time = 5 * attempt
+                    print(f"❌ Error sending message for {channel_name}: {str(e)}")
+                    print(f"⏳ Retrying in {wait_time}s (attempt {attempt}/{max_attempts})")
+                    await asyncio.sleep(wait_time)
                 else:
-                    print(f"Error sending message: {e}")
-                    if attempt < max_attempts:
-                        await asyncio.sleep(5)
-                    else:
-                        print(f"Failed to send after {max_attempts} attempts")
-                        return False
+                    # Final attempt failed
+                    print(f"❌ Failed to send after {max_attempts} attempts for {channel_name}")
+                    print(f"Final error: {str(e)}")
+                    return False
         
         return False

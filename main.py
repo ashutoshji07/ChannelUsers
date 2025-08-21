@@ -143,18 +143,9 @@ async def main():
                 print("Warning: Cookies file not found, trying without authentication")
                 chat_downloader = ChatDownloader()
             
-            # Test the connection before starting the main loop
-            print(f"Attempt {attempt + 1}/{max_retries}: Connecting to YouTube chat...")
+            print("Connecting to YouTube chat...")
             chat = chat_downloader.get_chat(livestream_url)
-            
-            # Try to get the first message to verify the connection
-            test_message = next(chat, None)
-            if test_message is None:
-                raise Exception("No messages available in the chat")
-            
-            print("Successfully connected to YouTube chat!")
-            # Reset chat for the main loop
-            chat = chat_downloader.get_chat(livestream_url)
+            print("Successfully connected to YouTube chat! Starting to monitor messages...")
             
             # If we reach here, connection is successful
             async with aiohttp.ClientSession() as session:
@@ -204,16 +195,12 @@ async def main():
             break
             
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt < max_retries - 1:
-                print(f"Retrying in {retry_delay} seconds...")
-                await asyncio.sleep(retry_delay)
-            else:
-                print("All attempts failed. Please check:")
-                print("1. Verify that YOUTUBE_VIDEO_ID is correct and the video is live")
-                print("2. Ensure cookies.txt is properly formatted and contains valid authentication")
-                print("3. Check your network connection")
-                raise  # Re-raise the last exception
+            print("Error in chat monitoring:")
+            print("1. Verify that YOUTUBE_VIDEO_ID is correct and the video is live")
+            print("2. Ensure cookies.txt is properly formatted and contains valid authentication")
+            print("3. Check your network connection")
+            print(f"Error details: {str(e)}")
+            raise  # Re-raise the exception
     
     chat = chat_downloader.get_chat(livestream_url)
     async with aiohttp.ClientSession() as session:
@@ -228,8 +215,7 @@ async def main():
             profile_pic_url = images[0]['url'] if images else None
             
             if channel_id:
-                if await is_user_exists(pool, channel_id):
-                    continue
+                # This check is now handled by is_user_sent_to_telegram
                 
                 await save_user(pool, channel_id, channel_name, channel_url, author)
                 
