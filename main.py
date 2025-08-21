@@ -19,6 +19,26 @@ async def health_check(request):
 app.router.add_get("/", health_check)
 app.router.add_get("/health", health_check)
 
+async def self_ping():
+    """Periodically ping our own service to prevent Render free tier from sleeping"""
+    if not RENDER_SERVICE_URL:
+        print("RENDER_SERVICE_URL not set, skipping self-ping")
+        return
+        
+    service_url = f"{RENDER_SERVICE_URL.rstrip('/')}/health"
+    print(f"Starting self-ping to {service_url}")
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(service_url) as response:
+                    if response.status == 200:
+                        print("Self-ping successful")
+                    else:
+                        print(f"Self-ping failed with status {response.status}")
+            except Exception as e:
+                print(f"Self-ping error: {str(e)}")
+            await asyncio.sleep(60 * 14)  # Ping every 14 minutes (Render free tier sleeps after 15 minutes)
+
 async def start_web_server():
     port = int(os.environ.get("PORT", 10000))
     runner = web.AppRunner(app)
@@ -26,6 +46,9 @@ async def start_web_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"Web server started on port {port}")
+    
+    # Start the self-ping task
+    asyncio.create_task(self_ping())
 
 # --- CONFIGURATION ---
 # Get configuration from environment variables
