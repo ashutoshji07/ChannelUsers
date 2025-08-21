@@ -70,13 +70,23 @@ async def mark_user_sent_to_telegram(pool, channel_id):
             WHERE channel_id = $1
         ''', channel_id)
 
-# Health check server
+# Server endpoints
 async def handle_health_check(request):
     return aiohttp.web.Response(text="OK")
 
+async def handle_ping(request):
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    return aiohttp.web.json_response({
+        "status": "alive",
+        "timestamp": current_time,
+        "message": "Service is active and monitoring YouTube chat"
+    })
+
 async def start_server():
     app = aiohttp.web.Application()
+    # Add routes
     app.router.add_get('/', handle_health_check)
+    app.router.add_get('/ping', handle_ping)  # New ping endpoint
     runner = aiohttp.web.AppRunner(app)
     await runner.setup()
     
@@ -110,8 +120,9 @@ def _to_async_iter(sync_iter):
 
 # Main chat monitoring function
 async def main():
-    max_retries = 3
     retry_delay = 60  # seconds
+    initial_retry_delay = retry_delay
+    max_retry_delay = 300  # 5 minutes max between retries
     
     # Initialize services
     await init_db()
@@ -121,7 +132,8 @@ async def main():
     livestream_url = f'https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}'
     print(f"Monitoring chat for video: {livestream_url}")
     
-    for attempt in range(max_retries):
+    attempt = 1
+    while True:  # Continuous retry loop
         try:
             # Set up ChatDownloader with cookies
             if os.path.exists(COOKIES_FILE):
