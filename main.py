@@ -94,20 +94,87 @@ def _to_async_iter(sync_iter):
 
 # Main chat monitoring function
 async def main():
+    max_retries = 3
+    retry_delay = 60  # seconds
+    
     # Initialize services
     await init_db()
     pool = await asyncpg.create_pool(DATABASE_URL)
     telegram_handler = TelegramHandler(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
     
     livestream_url = f'https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}'
+    print(f"Monitoring chat for video: {livestream_url}")
     
-    # Set up ChatDownloader with cookies
-    if os.path.exists(COOKIES_FILE):
-        print(f"Using cookies file: {COOKIES_FILE}")
-        chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
-    else:
-        print("Warning: Cookies file not found, trying without authentication")
-        chat_downloader = ChatDownloader()
+    for attempt in range(max_retries):
+        try:
+            # Set up ChatDownloader with cookies
+            if os.path.exists(COOKIES_FILE):
+                print(f"Using cookies file: {COOKIES_FILE}")
+                chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
+            else:
+                print("Warning: Cookies file not found, trying without authentication")
+                chat_downloader = ChatDownloader()
+            
+            # Test the connection before starting the main loop
+            print(f"Attempt {attempt + 1}/{max_retries}: Connecting to YouTube chat...")
+            chat = chat_downloader.get_chat(livestream_url)
+            
+            # Try to get the first message to verify the connection
+            test_message = next(chat, None)
+            if test_message is None:
+                raise Exception("No messages available in the chat")
+            
+            print("Successfully connected to YouTube chat!")
+            # Reset chat for the main loop
+            chat = chat_downloader.get_chat(livestream_url)
+            
+            # If we reach here, connection is successful
+            async with aiohttp.ClientSession() as session:
+                async for message in _to_async_iter(chat):
+                    try:
+                        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        author = message.get('author', {})
+                        channel_id = author.get('id')
+                        channel_name = author.get('name')
+                        channel_url = author.get('url')
+                        images = author.get('images', [])
+                        profile_pic_url = images[0]['url'] if images else None
+                        
+                        if channel_id:
+                            if await is_user_exists(pool, channel_id):
+                                continue
+                            
+                            await save_user(pool, channel_id, channel_name, channel_url, author)
+                            
+                            if not channel_url and channel_id:
+                                channel_url = f'https://www.youtube.com/channel/{channel_id}'
+                            
+                            await telegram_handler.send_message_with_retry(
+                                channel_name=channel_name,
+                                channel_url=channel_url,
+                                timestamp=now,
+                                profile_pic_url=profile_pic_url,
+                                session=session
+                            )
+                    except Exception as msg_error:
+                        print(f"Error processing message: {msg_error}")
+                        continue
+            
+            # If we get here without errors, break the retry loop
+            break
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+            else:
+                print("All attempts failed. Please check:")
+                print("1. Verify that YOUTUBE_VIDEO_ID is correct and the video is live")
+                print("2. Ensure cookies.txt is properly formatted and contains valid authentication")
+                print("3. Check your network connection")
+                raise  # Re-raise the last exception
     
     chat = chat_downloader.get_chat(livestream_url)
     async with aiohttp.ClientSession() as session:
