@@ -229,7 +229,7 @@ async def main():
     attempt = 1
     while True:  # Continuous retry loop
         try:
-            # Set up ChatDownloader with cookies (no input_mode argument)
+            # Set up ChatDownloader with cookies
             if os.path.exists(COOKIES_FILE):
                 print(f"Using cookies file: {COOKIES_FILE}")
                 chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
