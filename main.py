@@ -229,13 +229,13 @@ async def main():
     attempt = 1
     while True:  # Continuous retry loop
         try:
-            # Set up ChatDownloader with cookies
+            # Set up ChatDownloader with cookies, always use input_mode=False to avoid interactive prompt
             if os.path.exists(COOKIES_FILE):
                 print(f"Using cookies file: {COOKIES_FILE}")
-                chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
+                chat_downloader = ChatDownloader(cookies=COOKIES_FILE, input_mode=False)
             else:
                 print("Warning: Cookies file not found, trying without authentication")
-                chat_downloader = ChatDownloader()
+                chat_downloader = ChatDownloader(input_mode=False)
             
             print("Connecting to YouTube chat...")
             chat = chat_downloader.get_chat(livestream_url)
