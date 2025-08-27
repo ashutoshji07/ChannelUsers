@@ -222,21 +222,25 @@ async def main():
     await init_db()
     pool = await asyncpg.create_pool(DATABASE_URL)
     telegram_handler = TelegramHandler(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
-    
+
+    # Set user agent for chat-downloader
+    USER_AGENT = os.getenv('USER_AGENT', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36')
+
     livestream_url = f'https://www.youtube.com/watch?v={YOUTUBE_VIDEO_ID}'
     print(f"Monitoring chat for video: {livestream_url}")
-    
+
     attempt = 1
     while True:  # Continuous retry loop
         try:
-            # Set up ChatDownloader with cookies
+            # Set up ChatDownloader with cookies and user agent
             if os.path.exists(COOKIES_FILE):
                 print(f"Using cookies file: {COOKIES_FILE}")
-                chat_downloader = ChatDownloader(cookies=COOKIES_FILE)
+                chat_downloader = ChatDownloader(cookies=COOKIES_FILE, user_agent=USER_AGENT)
             else:
                 print("Warning: Cookies file not found, trying without authentication")
-                chat_downloader = ChatDownloader()
-            
+                chat_downloader = ChatDownloader(user_agent=USER_AGENT)
+
+            print(f"Using user agent: {USER_AGENT}")
             print("Connecting to YouTube chat...")
             chat = chat_downloader.get_chat(livestream_url)
             print("Successfully connected to YouTube chat! Starting to monitor messages...")
